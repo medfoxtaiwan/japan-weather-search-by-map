@@ -1,0 +1,1139 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>日本天気予報 — Japan Weather</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: 'Segoe UI', -apple-system, 'Hiragino Sans', 'Yu Gothic', sans-serif;
+    background: #1a1a2e;
+    color: #333;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ===== Layout ===== */
+  .app {
+    display: flex;
+    height: 100vh;
+  }
+  .left-panel {
+    width: 55%;
+    min-width: 380px;
+    overflow-y: auto;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    scrollbar-width: thin;
+  }
+  .right-panel {
+    width: 45%;
+    display: flex;
+    flex-direction: column;
+    background: #1a1a2e;
+  }
+
+  /* ===== Left Panel ===== */
+  .header {
+    text-align: center;
+    padding: 20px 20px 6px;
+    color: white;
+  }
+  .header h1 { font-size: 1.6rem; font-weight: 300; letter-spacing: 2px; }
+  .header p { opacity: 0.8; margin-top: 4px; font-size: 0.85rem; }
+
+  .search-area {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 12px 20px;
+  }
+  .search-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .search-input-wrap {
+    position: relative;
+    flex: 1;
+  }
+  .search-input-wrap input {
+    width: 100%;
+    padding: 10px 18px;
+    border: none;
+    border-radius: 25px;
+    font-size: 0.95rem;
+    background: rgba(255,255,255,0.95);
+    outline: none;
+  }
+  .search-input-wrap input::placeholder { color: #aaa; }
+  .search-btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 25px;
+    font-size: 0.95rem;
+    background: #ff6b6b;
+    color: white;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background 0.2s;
+    white-space: nowrap;
+  }
+  .search-btn:hover { background: #ee5a5a; }
+
+  .search-results {
+    position: absolute;
+    top: 100%;
+    left: 0; right: 0;
+    background: white;
+    border-radius: 12px;
+    margin-top: 4px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.25);
+    z-index: 1000;
+    max-height: 350px;
+    overflow-y: auto;
+    display: none;
+  }
+  .search-results.show { display: block; }
+  .sr-item {
+    padding: 10px 16px;
+    cursor: pointer;
+    border-bottom: 1px solid #f0f0f0;
+    transition: background 0.15s;
+  }
+  .sr-item:last-child { border-bottom: none; }
+  .sr-item:hover { background: #f5f7ff; }
+  .sr-item .sr-name { font-weight: 600; font-size: 0.95rem; }
+  .sr-item .sr-detail { font-size: 0.75rem; color: #888; margin-top: 2px; }
+  .sr-no-result { padding: 14px; color: #999; text-align: center; font-size: 0.9rem; }
+
+  .current-weather {
+    max-width: 600px;
+    margin: 12px auto;
+    background: rgba(255,255,255,0.95);
+    border-radius: 18px;
+    padding: 24px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+  }
+  .cw-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .cw-city { font-size: 1.4rem; font-weight: 600; }
+  .cw-city small { font-weight: 400; color: #888; font-size: 0.8rem; display: block; }
+  .cw-coords { font-size: 0.7rem; color: #aaa; margin-top: 3px; font-family: monospace; }
+  .cw-temp { font-size: 3.5rem; font-weight: 200; color: #444; }
+  .cw-icon { font-size: 3.5rem; }
+  .cw-desc { text-align: center; color: #666; margin-top: 6px; font-size: 1rem; }
+
+  .cw-details {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-top: 16px;
+  }
+  .cw-detail {
+    background: #f5f7fa;
+    padding: 10px;
+    border-radius: 10px;
+    text-align: center;
+  }
+  .cw-detail .label { font-size: 0.65rem; color: #999; text-transform: uppercase; letter-spacing: 0.5px; }
+  .cw-detail .value { font-size: 1.1rem; font-weight: 600; margin-top: 3px; }
+
+  .forecast-section {
+    max-width: 600px;
+    margin: 0 auto 20px;
+    padding: 0 20px;
+  }
+  .forecast-section h2 {
+    color: white;
+    font-weight: 300;
+    margin-bottom: 10px;
+    font-size: 1.05rem;
+  }
+
+  .hourly-scroll {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 8px;
+    scrollbar-width: thin;
+  }
+  .hourly-card {
+    flex-shrink: 0;
+    background: rgba(255,255,255,0.9);
+    border-radius: 12px;
+    padding: 10px 12px;
+    text-align: center;
+    min-width: 70px;
+    box-shadow: 0 3px 12px rgba(0,0,0,0.08);
+  }
+  .hourly-card .time { font-size: 0.75rem; color: #888; }
+  .hourly-card .icon { font-size: 1.5rem; margin: 4px 0; }
+  .hourly-card .temp { font-weight: 600; font-size: 0.95rem; }
+  .hourly-card .rain { font-size: 0.7rem; color: #5b9bd5; margin-top: 2px; }
+  .hourly-card .wind { font-size: 0.65rem; color: #999; margin-top: 1px; }
+
+  .daily-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 8px;
+  }
+  .daily-card {
+    background: rgba(255,255,255,0.9);
+    border-radius: 12px;
+    padding: 12px 6px;
+    text-align: center;
+    box-shadow: 0 3px 12px rgba(0,0,0,0.08);
+  }
+  .daily-card .day { font-size: 0.75rem; color: #666; }
+  .daily-card .icon { font-size: 1.6rem; margin: 6px 0; }
+  .daily-card .temps { font-size: 0.8rem; }
+  .daily-card .temps .hi { font-weight: 700; color: #e74c3c; }
+  .daily-card .temps .lo { color: #3498db; }
+  .daily-card .rain { font-size: 0.68rem; color: #5b9bd5; margin-top: 3px; }
+
+  .loading { text-align: center; color: white; padding: 50px; font-size: 1.1rem; }
+  .loading .spinner {
+    display: inline-block;
+    width: 36px; height: 36px;
+    border: 3px solid rgba(255,255,255,0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 12px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .error { text-align: center; color: #ffcccc; padding: 30px; }
+
+  .footer {
+    text-align: center;
+    color: rgba(255,255,255,0.5);
+    padding: 12px;
+    font-size: 0.7rem;
+  }
+
+  /* ===== Right Panel: Map ===== */
+  .map-header {
+    padding: 10px 16px;
+    background: #16213e;
+    color: white;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  .map-header h2 { font-size: 1rem; font-weight: 400; flex: 1; }
+  .breadcrumb {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    font-size: 0.8rem;
+    flex-wrap: wrap;
+  }
+  .breadcrumb span {
+    color: rgba(255,255,255,0.5);
+  }
+  .breadcrumb a {
+    color: #8ecae6;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .breadcrumb a:hover { text-decoration: underline; }
+  .breadcrumb .current { color: white; font-weight: 600; }
+
+  #map {
+    flex: 1;
+    z-index: 1;
+  }
+
+  .map-legend {
+    padding: 8px 16px;
+    background: #16213e;
+    color: rgba(255,255,255,0.7);
+    font-size: 0.75rem;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
+  /* Custom map markers */
+  .region-marker {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    border-radius: 12px;
+    padding: 6px 14px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    white-space: nowrap;
+    box-shadow: 0 3px 12px rgba(0,0,0,0.3);
+    text-align: center;
+    cursor: pointer;
+    transition: transform 0.2s;
+    border: 2px solid rgba(255,255,255,0.4);
+  }
+  .region-marker:hover { transform: scale(1.1); }
+  .region-marker small {
+    display: block;
+    font-size: 0.65rem;
+    font-weight: 400;
+    opacity: 0.85;
+  }
+
+  .pref-marker {
+    background: linear-gradient(135deg, #0077b6, #00b4d8);
+    color: white;
+    border-radius: 10px;
+    padding: 5px 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    white-space: nowrap;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.25);
+    cursor: pointer;
+    transition: transform 0.2s;
+    border: 2px solid rgba(255,255,255,0.3);
+  }
+  .pref-marker:hover { transform: scale(1.1); }
+  .pref-marker small {
+    display: block;
+    font-size: 0.6rem;
+    font-weight: 400;
+    opacity: 0.85;
+  }
+
+  .place-marker {
+    background: white;
+    color: #333;
+    border-radius: 8px;
+    padding: 4px 10px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    cursor: pointer;
+    transition: transform 0.2s, background 0.2s;
+    border: 2px solid #667eea;
+  }
+  .place-marker:hover { transform: scale(1.08); background: #f0f4ff; }
+  .place-marker.active { background: #667eea; color: white; }
+  .place-marker small {
+    display: block;
+    font-size: 0.6rem;
+    font-weight: 400;
+    color: #888;
+  }
+  .place-marker.active small { color: rgba(255,255,255,0.8); }
+
+  /* Mobile */
+  @media (max-width: 900px) {
+    .app { flex-direction: column; }
+    .left-panel { width: 100%; min-width: 0; height: 55vh; }
+    .right-panel { width: 100%; height: 45vh; }
+    .cw-details { grid-template-columns: repeat(4, 1fr); }
+    .daily-grid { grid-template-columns: repeat(4, 1fr); }
+  }
+  @media (max-width: 600px) {
+    .cw-details { grid-template-columns: repeat(2, 1fr); }
+    .daily-grid { grid-template-columns: repeat(4, 1fr); }
+    .cw-temp { font-size: 2.8rem; }
+    .cw-icon { font-size: 2.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- ===== LEFT: Weather ===== -->
+  <div class="left-panel">
+    <div class="header">
+      <h1>🗾 日本天気予報</h1>
+      <p>即時天氣 · 支援中文/日文/英文搜尋</p>
+    </div>
+
+    <div class="search-area">
+      <div class="search-row">
+        <div class="search-input-wrap">
+          <input type="text" id="searchInput" placeholder="輸入地名（滋賀、箱根、Hakone...）" autocomplete="off">
+          <div class="search-results" id="searchResults"></div>
+        </div>
+        <button class="search-btn" onclick="doSearch()">🔍</button>
+      </div>
+    </div>
+
+    <div id="content">
+      <div class="loading"><div class="spinner"></div><br>読み込み中...</div>
+    </div>
+
+    <div class="footer">
+      Open-Meteo API（JMA） · 每 10 分鐘自動更新 · <span id="lastUpdate">--</span>
+    </div>
+  </div>
+
+  <!-- ===== RIGHT: Map ===== -->
+  <div class="right-panel">
+    <div class="map-header">
+      <h2>🗺️ 地圖導覽</h2>
+      <div class="breadcrumb" id="breadcrumb">
+        <span class="current">日本全域</span>
+      </div>
+    </div>
+    <div id="map"></div>
+    <div class="map-legend">點選地區 → 都道府県 → 地點 查詢天氣 ｜ OpenStreetMap</div>
+  </div>
+</div>
+
+<script>
+// =============================================================
+// HIERARCHICAL DATA: Region → Prefecture → Places
+// =============================================================
+const MAP_HIERARCHY = {
+  '北海道': {
+    center: [43.2, 142.5], zoom: 7,
+    prefectures: {
+      '北海道': {
+        center: [43.2, 142.5], zoom: 8,
+        places: [
+          { zh:'札幌', ja:'札幌', en:'Sapporo', lat:43.06, lon:141.35, elev:17 },
+          { zh:'旭川', ja:'旭川', en:'Asahikawa', lat:43.77, lon:142.37, elev:112 },
+          { zh:'函館', ja:'函館', en:'Hakodate', lat:41.77, lon:140.73, elev:35 },
+          { zh:'小樽', ja:'小樽', en:'Otaru', lat:43.19, lon:141.00, elev:20 },
+          { zh:'富良野', ja:'富良野', en:'Furano', lat:43.34, lon:142.38, elev:180 },
+          { zh:'帶廣', ja:'帯広', en:'Obihiro', lat:42.92, lon:143.20, elev:72 },
+          { zh:'釧路', ja:'釧路', en:'Kushiro', lat:42.98, lon:144.38, elev:5 },
+          { zh:'稚內', ja:'稚内', en:'Wakkanai', lat:45.42, lon:141.67, elev:3 },
+          { zh:'登別', ja:'登別', en:'Noboribetsu', lat:42.41, lon:141.11, elev:80 },
+          { zh:'洞爺湖', ja:'洞爺湖', en:'Lake Toya', lat:42.57, lon:140.84, elev:84 },
+          { zh:'美瑛', ja:'美瑛', en:'Biei', lat:43.59, lon:142.47, elev:340 },
+          { zh:'二世谷', ja:'ニセコ', en:'Niseko', lat:42.87, lon:140.69, elev:175 },
+        ]
+      }
+    }
+  },
+  '東北': {
+    center: [39.5, 140.5], zoom: 7,
+    prefectures: {
+      '青森県': {
+        center: [40.8, 140.7], zoom: 9,
+        places: [
+          { zh:'青森', ja:'青森', en:'Aomori', lat:40.82, lon:140.74, elev:3 },
+          { zh:'弘前', ja:'弘前', en:'Hirosaki', lat:40.60, lon:140.47, elev:38 },
+          { zh:'奧入瀨溪流', ja:'奥入瀬渓流', en:'Oirase Gorge', lat:40.55, lon:140.98, elev:290 },
+        ]
+      },
+      '秋田県': {
+        center: [39.7, 140.1], zoom: 9,
+        places: [
+          { zh:'秋田', ja:'秋田', en:'Akita', lat:39.72, lon:140.10, elev:5 },
+          { zh:'角館', ja:'角館', en:'Kakunodate', lat:39.60, lon:140.56, elev:60 },
+        ]
+      },
+      '岩手県': {
+        center: [39.7, 141.1], zoom: 9,
+        places: [
+          { zh:'盛岡', ja:'盛岡', en:'Morioka', lat:39.70, lon:141.15, elev:130 },
+        ]
+      },
+      '宮城県': {
+        center: [38.3, 140.9], zoom: 9,
+        places: [
+          { zh:'仙台', ja:'仙台', en:'Sendai', lat:38.27, lon:140.87, elev:45 },
+          { zh:'松島', ja:'松島', en:'Matsushima', lat:38.37, lon:141.06, elev:3 },
+        ]
+      },
+      '山形県': {
+        center: [38.2, 140.3], zoom: 9,
+        places: [
+          { zh:'山形', ja:'山形', en:'Yamagata', lat:38.24, lon:140.33, elev:120 },
+          { zh:'藏王', ja:'蔵王', en:'Zao', lat:38.17, lon:140.40, elev:400 },
+          { zh:'銀山溫泉', ja:'銀山温泉', en:'Ginzan Onsen', lat:38.57, lon:140.53, elev:240 },
+        ]
+      },
+      '福島県': {
+        center: [37.75, 140.5], zoom: 9,
+        places: [
+          { zh:'福島', ja:'福島', en:'Fukushima', lat:37.75, lon:140.47, elev:67 },
+        ]
+      },
+    }
+  },
+  '関東': {
+    center: [36.0, 139.7], zoom: 8,
+    prefectures: {
+      '東京都': {
+        center: [35.68, 139.69], zoom: 11,
+        places: [
+          { zh:'東京', ja:'東京', en:'Tokyo', lat:35.68, lon:139.69, elev:40 },
+        ]
+      },
+      '神奈川県': {
+        center: [35.35, 139.4], zoom: 10,
+        places: [
+          { zh:'橫濱', ja:'横浜', en:'Yokohama', lat:35.44, lon:139.64, elev:10 },
+          { zh:'箱根', ja:'箱根', en:'Hakone', lat:35.23, lon:139.11, elev:460 },
+          { zh:'鎌倉', ja:'鎌倉', en:'Kamakura', lat:35.32, lon:139.55, elev:10 },
+          { zh:'江之島', ja:'江の島', en:'Enoshima', lat:35.30, lon:139.48, elev:5 },
+        ]
+      },
+      '埼玉県': {
+        center: [35.9, 139.6], zoom: 10,
+        places: [
+          { zh:'埼玉', ja:'さいたま', en:'Saitama', lat:35.86, lon:139.65, elev:15 },
+          { zh:'川越', ja:'川越', en:'Kawagoe', lat:35.93, lon:139.49, elev:18 },
+          { zh:'秩父', ja:'秩父', en:'Chichibu', lat:35.99, lon:139.08, elev:200 },
+        ]
+      },
+      '千葉県': {
+        center: [35.6, 140.1], zoom: 10,
+        places: [
+          { zh:'千葉', ja:'千葉', en:'Chiba', lat:35.61, lon:140.12, elev:3 },
+        ]
+      },
+      '茨城県': {
+        center: [36.37, 140.47], zoom: 10,
+        places: [
+          { zh:'水戶', ja:'水戸', en:'Mito', lat:36.37, lon:140.47, elev:25 },
+        ]
+      },
+      '栃木県': {
+        center: [36.6, 139.8], zoom: 10,
+        places: [
+          { zh:'宇都宮', ja:'宇都宮', en:'Utsunomiya', lat:36.57, lon:139.88, elev:120 },
+          { zh:'日光', ja:'日光', en:'Nikko', lat:36.72, lon:139.70, elev:535 },
+        ]
+      },
+      '群馬県': {
+        center: [36.4, 139.0], zoom: 10,
+        places: [
+          { zh:'前橋', ja:'前橋', en:'Maebashi', lat:36.39, lon:139.06, elev:108 },
+          { zh:'草津溫泉', ja:'草津温泉', en:'Kusatsu Onsen', lat:36.62, lon:138.60, elev:1200 },
+        ]
+      },
+    }
+  },
+  '中部': {
+    center: [36.0, 137.5], zoom: 7,
+    prefectures: {
+      '愛知県': {
+        center: [35.18, 136.91], zoom: 10,
+        places: [
+          { zh:'名古屋', ja:'名古屋', en:'Nagoya', lat:35.18, lon:136.91, elev:10 },
+        ]
+      },
+      '新潟県': {
+        center: [37.9, 139.0], zoom: 9,
+        places: [
+          { zh:'新潟', ja:'新潟', en:'Niigata', lat:37.92, lon:139.04, elev:2 },
+          { zh:'越後湯澤', ja:'越後湯沢', en:'Echigo-Yuzawa', lat:36.93, lon:138.82, elev:350 },
+        ]
+      },
+      '石川県': {
+        center: [36.6, 136.6], zoom: 10,
+        places: [
+          { zh:'金澤', ja:'金沢', en:'Kanazawa', lat:36.59, lon:136.63, elev:8 },
+        ]
+      },
+      '長野県': {
+        center: [36.4, 138.2], zoom: 9,
+        places: [
+          { zh:'長野', ja:'長野', en:'Nagano', lat:36.65, lon:138.18, elev:362 },
+          { zh:'輕井澤', ja:'軽井沢', en:'Karuizawa', lat:36.35, lon:138.60, elev:940 },
+          { zh:'松本', ja:'松本', en:'Matsumoto', lat:36.24, lon:137.97, elev:592 },
+          { zh:'上高地', ja:'上高地', en:'Kamikochi', lat:36.25, lon:137.65, elev:1500 },
+        ]
+      },
+      '富山県': {
+        center: [36.7, 137.2], zoom: 10,
+        places: [
+          { zh:'富山', ja:'富山', en:'Toyama', lat:36.69, lon:137.21, elev:9 },
+          { zh:'立山黑部', ja:'立山黒部', en:'Tateyama Kurobe', lat:36.58, lon:137.60, elev:2450 },
+        ]
+      },
+      '福井県': {
+        center: [36.06, 136.22], zoom: 10,
+        places: [
+          { zh:'福井', ja:'福井', en:'Fukui', lat:36.06, lon:136.22, elev:9 },
+        ]
+      },
+      '山梨県': {
+        center: [35.5, 138.7], zoom: 10,
+        places: [
+          { zh:'甲府', ja:'甲府', en:'Kofu', lat:35.66, lon:138.57, elev:270 },
+          { zh:'富士山', ja:'富士山', en:'Mt. Fuji', lat:35.36, lon:138.73, elev:3776 },
+          { zh:'河口湖', ja:'河口湖', en:'Lake Kawaguchi', lat:35.51, lon:138.76, elev:832 },
+        ]
+      },
+      '静岡県': {
+        center: [34.98, 138.4], zoom: 10,
+        places: [
+          { zh:'靜岡', ja:'静岡', en:'Shizuoka', lat:34.98, lon:138.38, elev:14 },
+          { zh:'熱海', ja:'熱海', en:'Atami', lat:35.10, lon:139.07, elev:10 },
+          { zh:'伊豆', ja:'伊豆', en:'Izu', lat:34.77, lon:139.10, elev:20 },
+        ]
+      },
+      '岐阜県': {
+        center: [35.8, 137.0], zoom: 9,
+        places: [
+          { zh:'岐阜', ja:'岐阜', en:'Gifu', lat:35.42, lon:136.76, elev:13 },
+          { zh:'高山', ja:'高山', en:'Takayama', lat:36.14, lon:137.25, elev:560 },
+          { zh:'白川鄉', ja:'白川郷', en:'Shirakawago', lat:36.26, lon:136.91, elev:450 },
+          { zh:'下呂溫泉', ja:'下呂温泉', en:'Gero Onsen', lat:35.80, lon:137.24, elev:220 },
+        ]
+      },
+    }
+  },
+  '近畿': {
+    center: [34.8, 135.6], zoom: 8,
+    prefectures: {
+      '滋賀県': {
+        center: [35.15, 136.05], zoom: 10,
+        places: [
+          { zh:'大津', ja:'大津', en:'Otsu', lat:35.00, lon:135.87, elev:90 },
+          { zh:'彥根', ja:'彦根', en:'Hikone', lat:35.28, lon:136.25, elev:90 },
+          { zh:'草津', ja:'草津', en:'Kusatsu', lat:35.02, lon:135.96, elev:100 },
+          { zh:'長浜', ja:'長浜', en:'Nagahama', lat:35.38, lon:136.28, elev:90 },
+          { zh:'近江八幡', ja:'近江八幡', en:'Omihachiman', lat:35.13, lon:136.10, elev:90 },
+          { zh:'琵琶湖', ja:'琵琶湖', en:'Lake Biwa', lat:35.25, lon:136.08, elev:85 },
+        ]
+      },
+      '大阪府': {
+        center: [34.69, 135.50], zoom: 11,
+        places: [
+          { zh:'大阪', ja:'大阪', en:'Osaka', lat:34.69, lon:135.50, elev:10 },
+        ]
+      },
+      '京都府': {
+        center: [35.1, 135.5], zoom: 10,
+        places: [
+          { zh:'京都', ja:'京都', en:'Kyoto', lat:35.01, lon:135.77, elev:50 },
+          { zh:'天橋立', ja:'天橋立', en:'Amanohashidate', lat:35.57, lon:135.19, elev:3 },
+        ]
+      },
+      '兵庫県': {
+        center: [34.8, 135.2], zoom: 10,
+        places: [
+          { zh:'神戶', ja:'神戸', en:'Kobe', lat:34.69, lon:135.20, elev:15 },
+          { zh:'姬路', ja:'姫路', en:'Himeji', lat:34.82, lon:134.69, elev:10 },
+          { zh:'有馬溫泉', ja:'有馬温泉', en:'Arima Onsen', lat:34.80, lon:135.25, elev:350 },
+        ]
+      },
+      '奈良県': {
+        center: [34.55, 135.8], zoom: 10,
+        places: [
+          { zh:'奈良', ja:'奈良', en:'Nara', lat:34.69, lon:135.83, elev:60 },
+          { zh:'吉野', ja:'吉野', en:'Yoshino', lat:34.40, lon:135.86, elev:350 },
+        ]
+      },
+      '和歌山県': {
+        center: [34.2, 135.2], zoom: 10,
+        places: [
+          { zh:'和歌山', ja:'和歌山', en:'Wakayama', lat:34.23, lon:135.17, elev:5 },
+          { zh:'高野山', ja:'高野山', en:'Koyasan', lat:34.21, lon:135.60, elev:800 },
+        ]
+      },
+      '三重県': {
+        center: [34.6, 136.5], zoom: 10,
+        places: [
+          { zh:'津', ja:'津', en:'Tsu', lat:34.73, lon:136.51, elev:3 },
+          { zh:'伊勢', ja:'伊勢', en:'Ise', lat:34.49, lon:136.71, elev:10 },
+        ]
+      },
+    }
+  },
+  '中国・四国': {
+    center: [34.2, 133.2], zoom: 7,
+    prefectures: {
+      '広島県': {
+        center: [34.4, 132.5], zoom: 10,
+        places: [
+          { zh:'廣島', ja:'広島', en:'Hiroshima', lat:34.40, lon:132.46, elev:5 },
+          { zh:'宮島', ja:'宮島', en:'Miyajima', lat:34.30, lon:132.32, elev:5 },
+          { zh:'尾道', ja:'尾道', en:'Onomichi', lat:34.41, lon:133.21, elev:5 },
+        ]
+      },
+      '岡山県': {
+        center: [34.65, 133.9], zoom: 10,
+        places: [
+          { zh:'岡山', ja:'岡山', en:'Okayama', lat:34.66, lon:133.93, elev:5 },
+          { zh:'倉敷', ja:'倉敷', en:'Kurashiki', lat:34.59, lon:133.77, elev:3 },
+        ]
+      },
+      '鳥取県': {
+        center: [35.5, 134.2], zoom: 10,
+        places: [
+          { zh:'鳥取', ja:'鳥取', en:'Tottori', lat:35.50, lon:134.24, elev:7 },
+        ]
+      },
+      '島根県': {
+        center: [35.47, 133.0], zoom: 10,
+        places: [
+          { zh:'松江', ja:'松江', en:'Matsue', lat:35.47, lon:133.05, elev:5 },
+          { zh:'出雲', ja:'出雲', en:'Izumo', lat:35.37, lon:132.75, elev:8 },
+        ]
+      },
+      '山口県': {
+        center: [34.18, 131.5], zoom: 10,
+        places: [
+          { zh:'山口', ja:'山口', en:'Yamaguchi', lat:34.18, lon:131.47, elev:5 },
+        ]
+      },
+      '愛媛県': {
+        center: [33.84, 132.8], zoom: 10,
+        places: [
+          { zh:'松山', ja:'松山', en:'Matsuyama', lat:33.84, lon:132.77, elev:30 },
+          { zh:'道後溫泉', ja:'道後温泉', en:'Dogo Onsen', lat:33.85, lon:132.79, elev:40 },
+        ]
+      },
+      '香川県': {
+        center: [34.34, 134.05], zoom: 10,
+        places: [
+          { zh:'高松', ja:'高松', en:'Takamatsu', lat:34.34, lon:134.05, elev:5 },
+          { zh:'直島', ja:'直島', en:'Naoshima', lat:34.46, lon:133.99, elev:5 },
+        ]
+      },
+      '高知県': {
+        center: [33.56, 133.5], zoom: 10,
+        places: [
+          { zh:'高知', ja:'高知', en:'Kochi', lat:33.56, lon:133.53, elev:3 },
+        ]
+      },
+      '徳島県': {
+        center: [34.0, 134.5], zoom: 10,
+        places: [
+          { zh:'德島', ja:'徳島', en:'Tokushima', lat:34.07, lon:134.56, elev:2 },
+          { zh:'祖谷', ja:'祖谷', en:'Iya Valley', lat:33.93, lon:133.98, elev:400 },
+        ]
+      },
+    }
+  },
+  '九州・沖縄': {
+    center: [31.5, 130.5], zoom: 6,
+    prefectures: {
+      '福岡県': {
+        center: [33.59, 130.4], zoom: 10,
+        places: [
+          { zh:'福岡', ja:'福岡', en:'Fukuoka', lat:33.59, lon:130.40, elev:5 },
+          { zh:'太宰府', ja:'太宰府', en:'Dazaifu', lat:33.52, lon:130.52, elev:30 },
+        ]
+      },
+      '佐賀県': {
+        center: [33.25, 130.3], zoom: 10,
+        places: [
+          { zh:'佐賀', ja:'佐賀', en:'Saga', lat:33.25, lon:130.30, elev:5 },
+        ]
+      },
+      '長崎県': {
+        center: [32.9, 129.9], zoom: 10,
+        places: [
+          { zh:'長崎', ja:'長崎', en:'Nagasaki', lat:32.75, lon:129.88, elev:5 },
+          { zh:'豪斯登堡', ja:'ハウステンボス', en:'Huis Ten Bosch', lat:33.09, lon:129.79, elev:3 },
+        ]
+      },
+      '熊本県': {
+        center: [32.9, 130.8], zoom: 9,
+        places: [
+          { zh:'熊本', ja:'熊本', en:'Kumamoto', lat:32.79, lon:130.74, elev:20 },
+          { zh:'阿蘇', ja:'阿蘇', en:'Aso', lat:32.95, lon:131.10, elev:500 },
+        ]
+      },
+      '大分県': {
+        center: [33.24, 131.6], zoom: 10,
+        places: [
+          { zh:'大分', ja:'大分', en:'Oita', lat:33.24, lon:131.61, elev:5 },
+          { zh:'別府', ja:'別府', en:'Beppu', lat:33.28, lon:131.50, elev:10 },
+          { zh:'由布院', ja:'由布院', en:'Yufuin', lat:33.27, lon:131.37, elev:450 },
+        ]
+      },
+      '宮崎県': {
+        center: [31.91, 131.4], zoom: 10,
+        places: [
+          { zh:'宮崎', ja:'宮崎', en:'Miyazaki', lat:31.91, lon:131.42, elev:6 },
+        ]
+      },
+      '鹿児島県': {
+        center: [31.2, 130.6], zoom: 9,
+        places: [
+          { zh:'鹿兒島', ja:'鹿児島', en:'Kagoshima', lat:31.56, lon:130.56, elev:5 },
+          { zh:'屋久島', ja:'屋久島', en:'Yakushima', lat:30.35, lon:130.51, elev:10 },
+        ]
+      },
+      '沖縄県': {
+        center: [26.5, 127.8], zoom: 9,
+        places: [
+          { zh:'那霸', ja:'那覇', en:'Naha', lat:26.33, lon:127.68, elev:10 },
+          { zh:'恩納', ja:'恩納', en:'Onna', lat:26.50, lon:127.85, elev:30 },
+          { zh:'名護', ja:'名護', en:'Nago', lat:26.59, lon:127.98, elev:8 },
+          { zh:'石垣島', ja:'石垣島', en:'Ishigaki', lat:24.34, lon:124.16, elev:10 },
+          { zh:'宮古島', ja:'宮古島', en:'Miyakojima', lat:24.79, lon:125.28, elev:20 },
+        ]
+      },
+    }
+  },
+};
+
+// Flatten for text search
+const ALL_PLACES = [];
+for (const [rName, region] of Object.entries(MAP_HIERARCHY)) {
+  for (const [pName, pref] of Object.entries(region.prefectures)) {
+    for (const place of pref.places) {
+      ALL_PLACES.push({ ...place, region: rName, pref: pName });
+    }
+  }
+}
+
+let currentLocation = null;
+let activeMarkerPlace = null;
+
+// ===== Weather Codes =====
+function weatherInfo(code) {
+  const m = {
+    0:{icon:'☀️',desc:'快晴 Clear'},1:{icon:'🌤️',desc:'晴れ Mainly clear'},
+    2:{icon:'⛅',desc:'一部曇り Partly cloudy'},3:{icon:'☁️',desc:'曇り Overcast'},
+    45:{icon:'🌫️',desc:'霧 Fog'},48:{icon:'🌫️',desc:'着氷性の霧 Rime fog'},
+    51:{icon:'🌦️',desc:'弱い霧雨 Light drizzle'},53:{icon:'🌦️',desc:'霧雨 Drizzle'},
+    55:{icon:'🌧️',desc:'強い霧雨 Dense drizzle'},
+    61:{icon:'🌧️',desc:'弱い雨 Slight rain'},63:{icon:'🌧️',desc:'雨 Rain'},
+    65:{icon:'🌧️',desc:'大雨 Heavy rain'},
+    71:{icon:'🌨️',desc:'弱い雪 Slight snow'},73:{icon:'🌨️',desc:'雪 Snow'},
+    75:{icon:'❄️',desc:'大雪 Heavy snow'},77:{icon:'🌨️',desc:'霧雪 Snow grains'},
+    80:{icon:'🌦️',desc:'にわか雨 Showers'},81:{icon:'🌧️',desc:'にわか雨 Mod. showers'},
+    82:{icon:'⛈️',desc:'激しい雨 Violent showers'},
+    85:{icon:'🌨️',desc:'にわか雪 Snow showers'},86:{icon:'❄️',desc:'大雪 Heavy snow showers'},
+    95:{icon:'⛈️',desc:'雷雨 Thunderstorm'},
+    96:{icon:'⛈️',desc:'雷雨（雹）T-storm+hail'},99:{icon:'⛈️',desc:'激しい雷雨 Heavy t-storm'},
+  };
+  return m[code]||{icon:'❓',desc:'Unknown'};
+}
+function windDir(d){const a=['N↑','NE↗','E→','SE↘','S↓','SW↙','W←','NW↖'];return a[Math.round(d/45)%8];}
+const DAYS=['日','月','火','水','木','金','土'];
+
+// ===== Map Init =====
+const map = L.map('map', { zoomControl: true }).setView([36.5, 137.5], 5);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap',
+  maxZoom: 18,
+}).addTo(map);
+
+let mapMarkers = [];
+let mapLevel = 'regions'; // 'regions' | 'prefectures' | 'places'
+let currentRegionKey = null;
+let currentPrefKey = null;
+
+function clearMarkers() {
+  mapMarkers.forEach(m => map.removeLayer(m));
+  mapMarkers = [];
+}
+
+// LEVEL 1: Show regions
+function showRegions() {
+  clearMarkers();
+  mapLevel = 'regions';
+  currentRegionKey = null;
+  currentPrefKey = null;
+  map.setView([36.5, 137.5], 5);
+
+  for (const [name, r] of Object.entries(MAP_HIERARCHY)) {
+    const prefCount = Object.keys(r.prefectures).length;
+    const placeCount = Object.values(r.prefectures).reduce((s,p) => s + p.places.length, 0);
+    const icon = L.divIcon({
+      className: '',
+      html: `<div class="region-marker">${name}<small>${prefCount}県 · ${placeCount}地點</small></div>`,
+      iconSize: [0, 0],
+      iconAnchor: [60, 15],
+    });
+    const marker = L.marker(r.center, { icon }).addTo(map);
+    marker.on('click', () => showPrefectures(name));
+    mapMarkers.push(marker);
+  }
+  updateBreadcrumb();
+}
+
+// LEVEL 2: Show prefectures within a region
+function showPrefectures(regionKey) {
+  clearMarkers();
+  mapLevel = 'prefectures';
+  currentRegionKey = regionKey;
+  currentPrefKey = null;
+
+  const region = MAP_HIERARCHY[regionKey];
+  map.setView(region.center, region.zoom);
+
+  for (const [name, pref] of Object.entries(region.prefectures)) {
+    const count = pref.places.length;
+    const icon = L.divIcon({
+      className: '',
+      html: `<div class="pref-marker">${name}<small>${count} 地點</small></div>`,
+      iconSize: [0, 0],
+      iconAnchor: [50, 13],
+    });
+    const marker = L.marker(pref.center, { icon }).addTo(map);
+    marker.on('click', () => showPlaces(regionKey, name));
+    mapMarkers.push(marker);
+  }
+  updateBreadcrumb();
+}
+
+// LEVEL 3: Show places within a prefecture
+function showPlaces(regionKey, prefKey) {
+  clearMarkers();
+  mapLevel = 'places';
+  currentRegionKey = regionKey;
+  currentPrefKey = prefKey;
+
+  const pref = MAP_HIERARCHY[regionKey].prefectures[prefKey];
+  map.setView(pref.center, pref.zoom);
+
+  for (const place of pref.places) {
+    const icon = L.divIcon({
+      className: '',
+      html: `<div class="place-marker" id="pm-${place.lat}-${place.lon}">${place.zh}<small>${place.en}</small></div>`,
+      iconSize: [0, 0],
+      iconAnchor: [45, 12],
+    });
+    const marker = L.marker([place.lat, place.lon], { icon }).addTo(map);
+    marker.on('click', () => {
+      loadCityFromPlace(place, regionKey, prefKey);
+    });
+    mapMarkers.push(marker);
+  }
+  updateBreadcrumb();
+}
+
+function updateBreadcrumb() {
+  const bc = document.getElementById('breadcrumb');
+  let html = '';
+  if (mapLevel === 'regions') {
+    html = '<span class="current">🗾 日本全域</span>';
+  } else if (mapLevel === 'prefectures') {
+    html = `<a onclick="showRegions()">🗾 日本</a><span> › </span><span class="current">${currentRegionKey}</span>`;
+  } else {
+    html = `<a onclick="showRegions()">🗾 日本</a><span> › </span><a onclick="showPrefectures('${currentRegionKey}')">${currentRegionKey}</a><span> › </span><span class="current">${currentPrefKey}</span>`;
+  }
+  bc.innerHTML = html;
+}
+
+function highlightMarker(lat, lon) {
+  document.querySelectorAll('.place-marker.active').forEach(el => el.classList.remove('active'));
+  const el = document.getElementById(`pm-${lat}-${lon}`);
+  if (el) el.classList.add('active');
+}
+
+// ===== Weather API =====
+async function fetchWeather(lat, lon) {
+  const url = `https://api.open-meteo.com/v1/jma?latitude=${lat}&longitude=${lon}`
+    + `&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m,pressure_msl`
+    + `&hourly=temperature_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m`
+    + `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,sunrise,sunset,wind_speed_10m_max,uv_index_max`
+    + `&timezone=Asia%2FTokyo&forecast_days=7`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// ===== Render Weather =====
+function renderWeather(data, city) {
+  const c = data.current;
+  const w = weatherInfo(c.weather_code);
+  const hourly = data.hourly;
+  const daily = data.daily;
+
+  let si = hourly.time.findIndex(t => t >= new Date().toISOString().slice(0,13));
+  if (si < 0) si = 0;
+
+  let hHTML = '';
+  for (let i = si; i < Math.min(si+24, hourly.time.length); i++) {
+    const t = new Date(hourly.time[i]);
+    const hw = weatherInfo(hourly.weather_code[i]);
+    const pr = hourly.precipitation[i]??0;
+    hHTML += `<div class="hourly-card">
+      <div class="time">${t.getHours()}:00</div>
+      <div class="icon">${hw.icon}</div>
+      <div class="temp">${hourly.temperature_2m[i].toFixed(1)}°</div>
+      <div class="rain">💧${hourly.precipitation_probability[i]??0}%</div>
+      ${pr>0?`<div class="wind">🌧${pr.toFixed(1)}mm</div>`:''}
+      <div class="wind">💨${hourly.wind_speed_10m[i]}km/h</div>
+    </div>`;
+  }
+
+  let dHTML = '';
+  for (let i = 0; i < daily.time.length; i++) {
+    const d = new Date(daily.time[i]+'T00:00');
+    const dw = weatherInfo(daily.weather_code[i]);
+    const dl = i===0?'今日':i===1?'明日':`${d.getMonth()+1}/${d.getDate()}(${DAYS[d.getDay()]})`;
+    const uv = daily.uv_index_max?daily.uv_index_max[i]:null;
+    dHTML += `<div class="daily-card">
+      <div class="day">${dl}</div>
+      <div class="icon">${dw.icon}</div>
+      <div class="temps"><span class="hi">${Math.round(daily.temperature_2m_max[i])}°</span>/<span class="lo">${Math.round(daily.temperature_2m_min[i])}°</span></div>
+      <div class="rain">💧${daily.precipitation_probability_max[i]??0}%</div>
+      ${uv!=null?`<div class="rain">UV${uv.toFixed(1)}</div>`:''}
+    </div>`;
+  }
+
+  const sr = daily.sunrise[0]?new Date(daily.sunrise[0]).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}):'--';
+  const ss = daily.sunset[0]?new Date(daily.sunset[0]).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}):'--';
+  const coords = `${city.lat.toFixed(4)}°N, ${city.lon.toFixed(4)}°E` + (city.elev!=null?` · 標高 ${Math.round(city.elev)}m`:'');
+
+  document.getElementById('content').innerHTML = `
+    <div class="current-weather">
+      <div class="cw-top">
+        <div>
+          <div class="cw-city">${city.name}<small>${city.sub}</small></div>
+          <div class="cw-coords">📍 ${coords}</div>
+        </div>
+        <div class="cw-icon">${w.icon}</div>
+        <div class="cw-temp">${c.temperature_2m.toFixed(1)}°C</div>
+      </div>
+      <div class="cw-desc">${w.desc}　｜　体感 ${c.apparent_temperature.toFixed(1)}°C</div>
+      <div class="cw-details">
+        <div class="cw-detail"><div class="label">湿度</div><div class="value">${c.relative_humidity_2m}%</div></div>
+        <div class="cw-detail"><div class="label">降水</div><div class="value">${c.precipitation.toFixed(1)}mm</div></div>
+        <div class="cw-detail"><div class="label">風速</div><div class="value">${c.wind_speed_10m}km/h</div></div>
+        <div class="cw-detail"><div class="label">風向</div><div class="value">${windDir(c.wind_direction_10m)}</div></div>
+        <div class="cw-detail"><div class="label">気圧</div><div class="value">${Math.round(c.pressure_msl)}hPa</div></div>
+        <div class="cw-detail"><div class="label">🌅日出</div><div class="value">${sr}</div></div>
+        <div class="cw-detail"><div class="label">🌇日落</div><div class="value">${ss}</div></div>
+        <div class="cw-detail"><div class="label">高/低</div><div class="value" style="color:#e74c3c">${Math.round(daily.temperature_2m_max[0])}°<span style="color:#3498db">/${Math.round(daily.temperature_2m_min[0])}°</span></div></div>
+      </div>
+    </div>
+    <div class="forecast-section">
+      <h2>⏱ 毎時予報（24h）</h2>
+      <div class="hourly-scroll">${hHTML}</div>
+    </div>
+    <div class="forecast-section">
+      <h2>📅 週間予報（7日）</h2>
+      <div class="daily-grid">${dHTML}</div>
+    </div>`;
+  document.getElementById('lastUpdate').textContent = new Date().toLocaleString('ja-JP');
+}
+
+// ===== Load City =====
+async function loadCity(lat, lon, name, sub, elev) {
+  currentLocation = { lat, lon, name, sub: sub||'', elev };
+  document.getElementById('content').innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>';
+  try {
+    const data = await fetchWeather(lat, lon);
+    renderWeather(data, currentLocation);
+  } catch (e) {
+    document.getElementById('content').innerHTML = `<div class="error">⚠️ ${e.message}</div>`;
+  }
+}
+
+function loadCityFromPlace(place, regionKey, prefKey) {
+  highlightMarker(place.lat, place.lon);
+  const sub = `${place.ja} / ${place.en} ｜ ${prefKey}（${regionKey}）`;
+  loadCity(place.lat, place.lon, place.zh, sub, place.elev);
+  // Also pan map to place
+  map.panTo([place.lat, place.lon]);
+}
+
+// ===== Text Search =====
+function searchLocal(q) {
+  const s = q.toLowerCase().trim();
+  if (!s) return [];
+  return ALL_PLACES.filter(p =>
+    p.zh.toLowerCase().includes(s) ||
+    p.ja.toLowerCase().includes(s) ||
+    p.en.toLowerCase().includes(s) ||
+    p.region.toLowerCase().includes(s) ||
+    p.pref.toLowerCase().includes(s)
+  );
+}
+
+async function doSearch() {
+  const q = document.getElementById('searchInput').value.trim();
+  if (!q) return;
+  const results = searchLocal(q);
+  if (results.length === 1) {
+    const p = results[0];
+    document.getElementById('searchResults').classList.remove('show');
+    // Navigate map to the place
+    showPlaces(p.region, p.pref);
+    loadCityFromPlace(p, p.region, p.pref);
+  } else if (results.length > 0) {
+    showLocalResults(results);
+  } else {
+    // Fallback: API
+    try {
+      const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=8&language=ja&format=json`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const jp = (data.results||[]).filter(r => r.country_code==='JP');
+      if (jp.length > 0) showAPIResults(jp);
+      else showNoResult(q);
+    } catch { showNoResult(q); }
+  }
+}
+
+function showLocalResults(results) {
+  const c = document.getElementById('searchResults');
+  c.innerHTML = results.slice(0, 12).map(p => `
+    <div class="sr-item" onclick="selectLocalResult('${p.region}','${p.pref}',${p.lat},${p.lon})">
+      <div class="sr-name">${p.zh}（${p.ja}）</div>
+      <div class="sr-detail">${p.region} › ${p.pref} ｜ ${p.en} ｜ 標高 ${p.elev}m</div>
+    </div>`).join('');
+  c.classList.add('show');
+}
+
+function showAPIResults(results) {
+  const c = document.getElementById('searchResults');
+  c.innerHTML = results.map(r => {
+    const admin = [r.admin1,r.admin2].filter(Boolean).join(' › ');
+    const elev = r.elevation!=null?Math.round(r.elevation):0;
+    return `<div class="sr-item" onclick="loadCity(${r.latitude},${r.longitude},'${r.name}','${admin}',${elev}); document.getElementById('searchResults').classList.remove('show'); map.setView([${r.latitude},${r.longitude}],11);">
+      <div class="sr-name">${r.name}</div>
+      <div class="sr-detail">${admin} ｜ ${r.latitude.toFixed(3)}°N ｜ 標高 ${elev}m</div>
+    </div>`;
+  }).join('');
+  c.classList.add('show');
+}
+
+function showNoResult(q) {
+  const c = document.getElementById('searchResults');
+  c.innerHTML = `<div class="sr-no-result">「${q}」找不到結果，試試日文或英文名稱</div>`;
+  c.classList.add('show');
+}
+
+function selectLocalResult(region, pref, lat, lon) {
+  document.getElementById('searchResults').classList.remove('show');
+  showPlaces(region, pref);
+  const place = MAP_HIERARCHY[region].prefectures[pref].places.find(p => p.lat===lat && p.lon===lon);
+  if (place) loadCityFromPlace(place, region, pref);
+}
+
+// ===== Init =====
+document.getElementById('searchInput').addEventListener('input', function() {
+  clearTimeout(this._d);
+  const q = this.value.trim();
+  if (q.length < 1) { document.getElementById('searchResults').classList.remove('show'); return; }
+  this._d = setTimeout(() => {
+    const r = searchLocal(q);
+    if (r.length > 0) showLocalResults(r);
+    else document.getElementById('searchResults').classList.remove('show');
+  }, 200);
+});
+document.getElementById('searchInput').addEventListener('keydown', e => {
+  if (e.key==='Enter') { e.preventDefault(); doSearch(); }
+});
+document.getElementById('searchInput').addEventListener('blur', () => {
+  setTimeout(() => document.getElementById('searchResults').classList.remove('show'), 200);
+});
+
+// Show regions on map
+showRegions();
+
+// Default: load Tokyo
+loadCity(35.68, 139.69, '東京', '東京 / Tokyo ｜ 東京都（関東）', 40);
+
+// Auto-refresh
+setInterval(() => {
+  if (currentLocation) loadCity(currentLocation.lat, currentLocation.lon, currentLocation.name, currentLocation.sub, currentLocation.elev);
+}, 600000);
+</script>
+
+</body>
+</html>
