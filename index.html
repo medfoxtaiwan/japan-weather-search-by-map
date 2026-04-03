@@ -567,11 +567,16 @@ const MAP_HIERARCHY = {
         ]
       },
       '静岡県': {
-        center: [34.98, 138.4], zoom: 10,
+        center: [34.95, 138.6], zoom: 9,
         places: [
           { zh:'靜岡', ja:'静岡', en:'Shizuoka', lat:34.98, lon:138.38, elev:14 },
+          { zh:'濱松', ja:'浜松', en:'Hamamatsu', lat:34.71, lon:137.73, elev:5 },
           { zh:'熱海', ja:'熱海', en:'Atami', lat:35.10, lon:139.07, elev:10 },
-          { zh:'伊豆', ja:'伊豆', en:'Izu', lat:34.77, lon:139.10, elev:20 },
+          { zh:'伊豆', ja:'伊豆', en:'Izu', lat:34.97, lon:138.95, elev:20 },
+          { zh:'伊豆市', ja:'伊豆市', en:'Izu City', lat:34.98, lon:139.00, elev:100 },
+          { zh:'下田', ja:'下田', en:'Shimoda', lat:34.68, lon:138.95, elev:5 },
+          { zh:'修善寺', ja:'修善寺', en:'Shuzenji', lat:34.97, lon:138.93, elev:60 },
+          { zh:'御殿場', ja:'御殿場', en:'Gotemba', lat:35.31, lon:138.93, elev:456 },
         ]
       },
       '岐阜県': {
@@ -1069,27 +1074,48 @@ async function doSearch() {
   }
 }
 
+let _localCache = [];
 function showLocalResults(results) {
+  _localCache = results.slice(0, 12);
   const c = document.getElementById('searchResults');
-  c.innerHTML = results.slice(0, 12).map(p => `
-    <div class="sr-item" onclick="selectLocalResult('${p.region}','${p.pref}',${p.lat},${p.lon})">
+  c.innerHTML = _localCache.map((p, i) => `
+    <div class="sr-item" onclick="selectLocalByIndex(${i})">
       <div class="sr-name">${p.zh}（${p.ja}）</div>
       <div class="sr-detail">${p.region} › ${p.pref} ｜ ${p.en} ｜ 標高 ${p.elev}m</div>
     </div>`).join('');
   c.classList.add('show');
 }
+function selectLocalByIndex(i) {
+  const p = _localCache[i];
+  if (!p) return;
+  document.getElementById('searchResults').classList.remove('show');
+  showPlaces(p.region, p.pref);
+  const place = MAP_HIERARCHY[p.region].prefectures[p.pref].places.find(x => x.lat===p.lat && x.lon===p.lon);
+  if (place) loadCityFromPlace(place, p.region, p.pref);
+}
 
+let _apiCache = [];
 function showAPIResults(results) {
+  _apiCache = results;
   const c = document.getElementById('searchResults');
-  c.innerHTML = results.map(r => {
+  c.innerHTML = results.map((r, i) => {
     const admin = [r.admin1,r.admin2].filter(Boolean).join(' › ');
     const elev = r.elevation!=null?Math.round(r.elevation):0;
-    return `<div class="sr-item" onclick="loadCity(${r.latitude},${r.longitude},'${r.name}','${admin}',${elev}); document.getElementById('searchResults').classList.remove('show'); map.setView([${r.latitude},${r.longitude}],11);">
+    return `<div class="sr-item" onclick="selectAPIResult(${i})">
       <div class="sr-name">${r.name}</div>
       <div class="sr-detail">${admin} ｜ ${r.latitude.toFixed(3)}°N ｜ 標高 ${elev}m</div>
     </div>`;
   }).join('');
   c.classList.add('show');
+}
+function selectAPIResult(i) {
+  const r = _apiCache[i];
+  if (!r) return;
+  const admin = [r.admin1,r.admin2].filter(Boolean).join(' › ');
+  const elev = r.elevation!=null?Math.round(r.elevation):0;
+  document.getElementById('searchResults').classList.remove('show');
+  loadCity(r.latitude, r.longitude, r.name, admin, elev);
+  map.setView([r.latitude, r.longitude], 11);
 }
 
 function showNoResult(q) {
@@ -1098,12 +1124,6 @@ function showNoResult(q) {
   c.classList.add('show');
 }
 
-function selectLocalResult(region, pref, lat, lon) {
-  document.getElementById('searchResults').classList.remove('show');
-  showPlaces(region, pref);
-  const place = MAP_HIERARCHY[region].prefectures[pref].places.find(p => p.lat===lat && p.lon===lon);
-  if (place) loadCityFromPlace(place, region, pref);
-}
 
 // ===== Init =====
 document.getElementById('searchInput').addEventListener('input', function() {
